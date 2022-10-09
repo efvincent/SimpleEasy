@@ -1,0 +1,50 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.34.4.
+--
+-- see: https://github.com/sol/hpack
+
+name:           SimpleEasy
+version:        0.1.0.0
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+
+executable SimpleEasy.exe
+  main-is: Main.hs
+  other-modules:
+      Lambda
+      Paths_SimpleEasy
+  hs-source-dirs:
+      src
+  default-extensions:
+      EmptyCase
+      FlexibleContexts
+      FlexibleInstances
+      InstanceSigs
+      MultiParamTypeClasses
+      LambdaCase
+      MultiWayIf
+      NamedFieldPuns
+      TupleSections
+      DeriveFoldable
+      DeriveFunctor
+      DeriveGeneric
+      DeriveLift
+      DeriveTraversable
+      DerivingStrategies
+      GeneralizedNewtypeDeriving
+      StandaloneDeriving
+      OverloadedStrings
+      TypeApplications
+  ghc-options: -Wall -Wcompat -Wincomplete-uni-patterns -Wredundant-constraints -Wincomplete-record-updates -Widentities -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      aeson
+    , base >=4.7 && <5
+    , containers
+    , monad-control
+    , mtl
+    , text
+    , transformers
+    , unordered-containers
+  default-language: Haskell2010
