@@ -70,7 +70,7 @@ cEval (Lam e) d = VLam (\x -> cEval e (x : d))
 
 data Kind = Star deriving (Show)
 
-data Info 
+data Info
   = HasKind Kind
   | HasType Type
   deriving (Show)
@@ -89,7 +89,7 @@ cKind ctx (TFree x) Star
     Just (HasKind Star) -> return ()
     Just (HasType _)    -> throwError "ASSERT FAILED"
     Nothing             -> throwError "unknown Identifier"
-cKind ctx (Fun k k') Star = do 
+cKind ctx (Fun k k') Star = do
   cKind ctx k  Star
   cKind ctx k' Star
 
@@ -101,15 +101,15 @@ iType i ctx (Ann e t) = do
   cKind ctx t Star
   cType i ctx e t
   return t
-iType _ ctx (Free x) = 
-  case lookup x ctx of 
+iType _ ctx (Free x) =
+  case lookup x ctx of
     Just (HasType t) -> return t
     Just (HasKind _) -> throwError "ASSERT FAILED"
     Nothing          -> throwError "Unknown identifier"
 iType i ctx (e :@: e') = do
   g <- iType i ctx e
   case g of
-    Fun t t' -> do 
+    Fun t t' -> do
       cType i ctx e' t
       return t'
     _ -> throwError "illegal operation"
@@ -132,3 +132,55 @@ iSubst i r (e :@: e') = iSubst i r e :@: cSubst i r e'
 cSubst :: Int -> ITerm -> CTerm -> CTerm
 cSubst i r (Inf e) = Inf (iSubst i r e)
 cSubst i r (Lam e) = Lam (cSubst (i + 1) r e)
+
+{-
+    Quotation
+-}
+
+quote0 :: Value -> CTerm
+quote0 = quote 0
+
+quote :: Int -> Value -> CTerm
+quote i (VLam f)     = Lam (quote (i + 1) (f (vfree (Quote i))))
+quote i (VNeutral n) = Inf (neutralQuote i n)
+
+neutralQuote :: Int -> Neutral -> ITerm
+neutralQuote i (NFree x)  = boundfree i x
+neutralQuote i (NApp n v) = neutralQuote i n :@: quote i v
+
+boundfree :: Int -> Name -> ITerm
+boundfree i (Quote k) = Bound (i - k - 1)
+boundfree _ x         = Free x
+
+{-
+    Examples
+-}
+
+id' :: CTerm
+id' = Lam (Inf (Bound 0))
+
+const' :: CTerm
+const' = Lam (Lam (Inf (Bound 1)))
+
+tfree :: String -> Type
+tfree a = TFree (Global a)
+
+free :: String -> CTerm
+free x = Inf (Free (Global x))
+
+term1 :: ITerm
+term1 = Ann id' (Fun (tfree "a") (tfree "a")) :@: free "y"
+
+term2 :: ITerm
+term2 = Ann const' (Fun (Fun (tfree "b") (tfree "b" ))
+                        (Fun (tfree "a")
+                             (Fun (tfree "b") (tfree "b"))))
+        :@: id' :@: free "y"
+
+env1 :: [(Name, Info)]
+env1 =
+  [ (Global "y", HasType (tfree "a"))
+  , (Global "a", HasKind Star)]
+env2 :: [(Name, Info)]
+env2 =
+  (Global "b", HasKind Star) : env1
