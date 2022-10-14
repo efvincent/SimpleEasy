@@ -81,7 +81,7 @@ iEval (e :@: e') d = vapp (iEval e d) (cEval e' d)
 {-| For lambda functions (Lam) we introduce a Haskell function and add the 
     bound variable @x@ to the environment while evaluating the body -} 
 vapp :: Value -> Value -> Value
-vapp (VLam f) v = f v
+vapp (VLam fn) v     = fn v
 vapp (VNeutral n) v = VNeutral (NApp n v)
 
 -- | big step evaluation of checkable terms
@@ -113,7 +113,15 @@ type Context = [(Name, Info)]
     Type Checking
 
     The type checking algorithm can fail, and to do so gracefully, it returns
-    the @Result@ monad. For simplicity, we choose a standard error monad
+    the @Result@ monad. For simplicity, we choose a standard error monad.
+
+    Note that the type equality check performed when checking an inferable term 
+    is implemented by a straightforeward syntactic equality on the data @Type@.
+    Our type checker doesn't perform unification.
+
+    the code for substitution comprises of one for checkable and one for 
+    inferable terms. 
+
 -}
 
 type Result a = Either String a
@@ -122,6 +130,8 @@ type Result a = Either String a
 throwError :: String -> Result a
 throwError = Left
 
+{-| Checks the well formedness of types
+-}
 cKind :: Context -> Type -> Kind -> Result ()
 cKind ctx (TFree x) Star =
   case lookup x ctx of
@@ -132,9 +142,24 @@ cKind ctx (Fun kappa kappa') Star = do
   cKind ctx kappa  Star
   cKind ctx kappa' Star
 
+{-| type checking functions are parameterized by a de Bruijn index indicating
+    the number of binders encountered. On the initial call this is zero so
+    we provide @iType0@ as a wrapper function.
+
+    We use this integer to simulate type rules for bound variables. In the type
+    rule for lambda abstraction, we add he bound variable to the context while
+    checking the body. We do the same in implementation. The counter @i@ 
+    indicates the number of binders we've passed, so @Local i@ is a fresh name 
+    that we can associate with the bound variable. We then add @Local i@ to 
+    the context @ctx@ to perform the corresponding substitution on the body. The
+    type checker will never encountere a bound variable; correspondingly the 
+    function @iType@ has no case for @Bound@. 
+-}
 iType0 :: Context -> ITerm -> Result Type
 iType0 = iType 0
 
+{-| function for inferrable terms returns a @Result Type@
+-}
 iType :: Int -> Context -> ITerm -> Result Type
 iType i ctx (Ann e tau) = do
   cKind ctx tau Star
@@ -154,6 +179,8 @@ iType i ctx (e :@: e') = do
     _         -> throwError "illegal application"
 iType _ _ _ = throwError "assertion failed - iType"
 
+{-| function for checkable terms takes a type and returns @Result ()@
+-}
 cType :: Int -> Context -> CTerm -> Type -> Result ()
 cType i ctx (Inf e) tau = do
   tau' <- iType i ctx e
@@ -162,31 +189,63 @@ cType i ctx (Lam e) (Fun tau tau') =
   cType (i + 1) ((Local i, HasType tau) : ctx) (cSubst 0 (Free (Local i)) e) tau'
 cType _ _ _ _ = throwError "type mismatch" 
 
+{-| substitution for inferable terms. The integer argument indicates which 
+    variable is to be substituted. For @Bound@ we check if the variable
+    encountered is the one to be substituted.
+-}
 iSubst :: Int -> ITerm -> ITerm -> ITerm
 iSubst i r (Ann e tau)  = Ann (cSubst i r e) tau
 iSubst i r (Bound j)  = if i == j then r else Bound j
 iSubst _ _ (Free y)   = Free y
 iSubst i r (e :@: e') = iSubst i r e :@: cSubst i r e' 
 
+{-| substitution for checkable terms. The integer argument indicates which 
+    variable is to be substituted. In the case of @Lam@ we increase @i@ to 
+    reflect that the variable to substitute is refrenced by a higher number 
+    underneath the binder.
+-}
 cSubst :: Int -> ITerm -> CTerm -> CTerm
 cSubst i r (Inf e) = Inf (iSubst i r e)
 cSubst i r (Lam e) = Lam (cSubst (i +  1) r e)
 
 {-
     Quotation
+
+    The use of higher order abstract syntax requires us to define a @quote@ 
+    function that takes a @Value@ back to a term. As the @VLam@ constructor of 
+    the @Value@ data type takes a function as argument, we cannot simply derive 
+    @Show@ and @Eq@ as we did for other types. Therefore as soon as we want to
+    get back at the internal structure of a value, for instance to display 
+    results of evaluation, we need the function @quote@.
 -}
 
+{-| initial db Bruijn index for @quote@ is zero, so we provide this wrapper 
+-}
 quote0 :: Value -> CTerm
 quote0 = quote 0
 
+{-| the function @quote@ takes an integer argument that counts the number of 
+    binders we have traversed. If the value is a lambda abstraction, we generate 
+    a fresh variable @Quote i@ and apply the Haskel function fn to this fresh 
+    variable. The value resulting from this function application is then 
+    quoted at level @i + 1@. We use the constructor @Quote@ that takes an 
+    argument of type @Int@ here to ensure that the newly created names don't 
+    clash with other names in the value.
+-}
 quote :: Int -> Value -> CTerm
-quote i (VLam fun)     = Lam (quote (i + 1) (fun (vfree (Quote i))))
+quote i (VLam fn)     = Lam (quote (i + 1) (fn (vfree (Quote i))))
 quote i (VNeutral n) = Inf (neutralQuote i n)
 
+{-| if under @quote@ the value is a neutral term (hence the application of a
+    free variable to a value), @neutralQuote@ quotes its arguments.
+-}
 neutralQuote :: Int -> Neutral -> ITerm
 neutralQuote i (NFree x)  = boundfree i x
 neutralQuote i (NApp n v) = neutralQuote i n :@: quote i v
 
+{-| the @boundfree@ function checks if the variable occuring at the head of the 
+    application is a @Quote@, and thus a bound variable, or a free name.
+-}
 boundfree :: Int -> Name -> ITerm
 boundfree i (Quote k) = Bound (i - k - 1)
 boundfree _ x         = Free x
